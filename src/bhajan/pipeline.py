@@ -278,9 +278,9 @@ class KaraokePipeline:
         return final_path
 
     def _export_simple_final(self, instrumental_path: Path, transcript: Transcript) -> Path:
-        """Encode instrumental to AAC in ``final/`` and write ``lyrics.txt`` (romanized when enabled)."""
+        """Encode GUI-safe audio in ``final/`` and write the lyric artifacts."""
         self.final_dir.mkdir(parents=True, exist_ok=True)
-        audio_m4a = self.final_dir / "instrumental.m4a"
+        audio_ogg = self.final_dir / "instrumental.ogg"
         try:
             subprocess_utils.check_call(
                 [
@@ -289,22 +289,22 @@ class KaraokePipeline:
                     "-i",
                     str(instrumental_path),
                     "-c:a",
-                    "aac",
-                    "-b:a",
-                    "192k",
-                    str(audio_m4a),
+                    "libvorbis",
+                    "-q:a",
+                    "5",
+                    str(audio_ogg),
                 ],
                 timeout=600,
             )
-            self.stage_logger.info("Wrote instrumental audio -> %s", audio_m4a)
+            self.stage_logger.info("Wrote instrumental audio -> %s", audio_ogg)
         except Exception as exc:
             self.stage_logger.warning(
-                "Could not encode instrumental to AAC (%s); copying WAV instead.",
+                "Could not encode instrumental to OGG (%s); copying WAV instead.",
                 exc,
             )
-            if audio_m4a.exists():
+            if audio_ogg.exists():
                 try:
-                    audio_m4a.unlink()
+                    audio_ogg.unlink()
                 except OSError:
                     pass
             audio_wav = self.final_dir / "instrumental.wav"
@@ -315,6 +315,14 @@ class KaraokePipeline:
         lines = [seg.text.strip() for seg in transcript.segments if seg.text.strip()]
         lyrics_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
         self.stage_logger.info("Wrote lyrics -> %s", lyrics_path)
+
+        transcript_path = self.final_dir / "transcript.json"
+        transcript_path.write_text(
+            json.dumps(transcript.to_dict(), indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        self.stage_logger.info("Wrote word timings for replay -> %s", transcript_path)
+
         return lyrics_path
 
     def _cleanup_intermediate(self) -> None:

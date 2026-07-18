@@ -11,7 +11,7 @@ from pathlib import Path
 
 from bhajan.config import DEFAULT_DEVICE, DEFAULT_WHISPER_MODEL
 from bhajan.logger import StageLogger
-from bhajan.stages.transcription_base import Transcript, TranscriptionBackend
+from bhajan.stages.transcription_base import Segment, Transcript, TranscriptionBackend, WordStamp
 
 log = logging.getLogger("bhajan")
 stage = StageLogger(log, "transcribe")
@@ -56,6 +56,23 @@ def save_transcript(transcript: Transcript, transcript_dir: Path) -> Path:
     out_path.write_text(json.dumps(transcript.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
     stage.info("Transcript saved -> %s", out_path)
     return out_path
+
+
+def load_transcript(path: Path) -> Transcript:
+    """Load a transcript written by :func:`save_transcript` or ``Transcript.to_dict``."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    transcript = Transcript()
+    for seg_d in data.get("segments", []):
+        words = [
+            WordStamp(
+                word=str(w["word"]),
+                start=float(w["start"]),
+                end=float(w["end"]),
+            )
+            for w in seg_d.get("words", [])
+        ]
+        transcript.segments.append(Segment(words=words))
+    return transcript
 
 
 # ---- Auto-register built-in backends ----

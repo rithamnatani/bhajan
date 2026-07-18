@@ -53,8 +53,11 @@ class KaraokeGUI:
         self.line_labels: list[tk.Label] = []
         self.current_line_index = -1
 
+        self._layout_signature: tuple[int, int, int, int] | None = None
+
         self.is_playing = False
         self.is_paused = False
+        self.audio_loaded = False
         self.duration = 0.0
 
         self.update_interval = 50
@@ -71,6 +74,53 @@ class KaraokeGUI:
         self.active_line_font = tkfont.Font(family="Segoe UI", size=18, weight="bold")
         self.button_font = tkfont.Font(family="Segoe UI", size=11, weight="bold")
         self.small_font = tkfont.Font(family="Segoe UI", size=10)
+
+    def _compute_text_metrics(self) -> tuple[int, int, int, int, int] | None:
+        """Return (lyrics_wrap_px, lyrics_pt, active_pt, title_wrap_px, title_pt) or None if not laid out yet."""
+        self.root.update_idletasks()
+        screen = max(1, int(self.root.winfo_screenwidth()))
+        cap = max(240, screen // 2)
+
+        cw = int(self.lyrics_canvas.winfo_width())
+        if cw < 16:
+            return None
+
+        inner_pad = 28
+        lyrics_wrap = min(max(100, cw - inner_pad), cap)
+        lyrics_pt = max(12, min(44, int(lyrics_wrap * 0.028)))
+        active_pt = max(13, min(50, int(lyrics_pt * 1.14)))
+
+        root_w = max(200, int(self.root.winfo_width()))
+        title_wrap = min(max(160, root_w - 48), cap)
+        title_pt = max(14, min(28, int(title_wrap * 0.036)))
+
+        return lyrics_wrap, lyrics_pt, active_pt, title_wrap, title_pt
+
+    def _apply_responsive_layout(self, _event: object | None = None) -> None:
+        m = self._compute_text_metrics()
+        if m is None:
+            return
+        lyrics_wrap, lyrics_pt, active_pt, title_wrap, title_pt = m
+        sig = (lyrics_wrap, lyrics_pt, title_wrap, title_pt)
+        if sig == self._layout_signature:
+            return
+        self._layout_signature = sig
+
+        self.title_font.configure(size=title_pt)
+        self.lyrics_line_font.configure(size=lyrics_pt)
+        self.active_line_font.configure(size=active_pt)
+
+        self.title_label.configure(wraplength=title_wrap)
+
+        for lbl in self.line_labels:
+            lbl.configure(wraplength=lyrics_wrap)
+
+        self.lyrics_inner.update_idletasks()
+        self._refresh_scrollregion()
+
+        active = self.current_line_index
+        if active >= 0:
+            self._set_line_styles(active)
 
     def _build_ui(self) -> None:
         self.root = tk.Tk()
@@ -92,8 +142,9 @@ class KaraokeGUI:
             fg="#ffffff",
             wraplength=680,
             justify=tk.CENTER,
+            anchor="center",
         )
-        self.title_label.pack(pady=(0, 12))
+        self.title_label.pack(pady=(0, 12), fill=tk.X)
 
         lyrics_frame = tk.Frame(main_frame, bg="#0c0c1e")
         lyrics_frame.pack(fill=tk.BOTH, expand=True, pady=6)
@@ -121,6 +172,7 @@ class KaraokeGUI:
         self._build_lyrics_display()
 
         self.lyrics_canvas.bind("<Configure>", self._on_canvas_configure)
+        self.root.bind("<Configure>", self._on_root_configure)
         lyrics_frame.bind("<Enter>", self._lyrics_enter)
         lyrics_frame.bind("<Leave>", self._lyrics_leave)
 
@@ -245,6 +297,8 @@ class KaraokeGUI:
 
         self._load_audio()
 
+        self.root.after_idle(self._apply_responsive_layout)
+
     def _build_lyrics_display(self) -> None:
         self.line_labels.clear()
         wrap = max(320, self.lyrics_canvas.winfo_width() or 640)
@@ -258,8 +312,8 @@ class KaraokeGUI:
                 bg="#12122a",
                 fg="#5a5a72",
                 wraplength=wrap,
-                justify=tk.LEFT,
-                anchor="w",
+                justify=tk.CENTER,
+                anchor="center",
                 padx=12,
                 pady=6,
             )
@@ -272,11 +326,10 @@ class KaraokeGUI:
     def _on_canvas_configure(self, event: tk.Event) -> None:
         inner_w = max(1, event.width - 4)
         self.lyrics_canvas.itemconfigure(self._inner_canvas_id, width=inner_w)
-        wrap = max(280, inner_w - 24)
-        for lbl in self.line_labels:
-            lbl.configure(wraplength=wrap)
-        self.lyrics_inner.update_idletasks()
-        self._refresh_scrollregion()
+        self._apply_responsive_layout()
+
+    def _on_root_configure(self, _event: tk.Event) -> None:
+        self._apply_responsive_layout()
 
     def _refresh_scrollregion(self) -> None:
         self.lyrics_inner.update_idletasks()
@@ -341,10 +394,13 @@ class KaraokeGUI:
             sound = pygame.mixer.Sound(str(self.audio_path))
             self.duration = sound.get_length()
             self.total_time_label.configure(text=self._format_time(self.duration))
+            self.audio_loaded = True
             stage.info("Audio loaded: %.1f seconds", self.duration)
         except Exception as e:
+            self.audio_loaded = False
             stage.error("Failed to load audio: %s", e)
             self.status_label.configure(text=f"Error loading audio: {e}", fg="#ff4444")
+            self.play_btn.configure(state=tk.DISABLED)
 
     def _toggle_playback(self) -> None:
         if not self.is_playing:
@@ -355,6 +411,12 @@ class KaraokeGUI:
             self._pause_playback()
 
     def _start_playback(self) -> None:
+        if not self.audio_loaded:
+            self.status_label.configure(
+                text="Audio is not loaded; see the terminal for details.",
+                fg="#ff4444",
+            )
+            return
         pygame.mixer.music.play(start=0.0)
         self.is_playing = True
         self.is_paused = False

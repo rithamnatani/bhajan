@@ -195,6 +195,43 @@ def clean_youtube_url(url: str) -> str:
     return url.strip()
 
 
+# Treat as a stream URL (YouTube or any http(s) link) so the pipeline / yt-dlp runs.
+# Everything else is handled as a fuzzy local library search against ./output.
+_YT_HOST = re.compile(
+    r"(?i)(?:^|[/\s@])(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)\b",
+)
+
+
+def looks_like_stream_url(text: str) -> bool:
+    """Return True if *text* should be passed to the download pipeline.
+
+    Heuristic (intentionally simple):
+
+    - Any string starting with ``http://`` or ``https://`` is treated as a URL
+      (YouTube or otherwise — yt-dlp may still reject non-YouTube hosts).
+    - A **scheme-less** YouTube host (``youtube.com/...``, ``youtu.be/...``,
+      optional ``www.``, ``m.``, ``music.``) is treated as a URL so shortened
+      links pasted without ``https://`` still work.
+
+    Song titles that happen to contain the substring ``youtube`` but not as a
+    host (e.g. "youtube mashup mix") are still treated as **local search**;
+    host detection requires a slash or start-anchored host pattern.
+
+    Examples:
+        ``https://youtu.be/abc`` → True
+        ``youtu.be/abc`` → True
+        ``shoota playboi`` → False
+    """
+    q = text.strip()
+    if not q:
+        return False
+    if re.match(r"https?://", q, re.I):
+        return True
+    if _YT_HOST.search(q):
+        return True
+    return False
+
+
 def safe_filename(name: str, max_len: int = 80) -> str:
     """Return a filesystem-safe version of *name*.
 

@@ -1,8 +1,9 @@
-"""Transliterate non-Latin lyric tokens to Latin (ITRANS) for display and export."""
+"""Transliterate non-Latin lyrics into casual, singable Latin text."""
 
 from __future__ import annotations
 
 import logging
+import unicodedata
 
 from bhajan.stages.transcription_base import Segment, Transcript, WordStamp
 
@@ -58,30 +59,69 @@ def _scheme_from_language_hint(language: str | None) -> str | None:
     return mapping.get(lang)
 
 
+_ROMANIZATION_NOTATION = str.maketrans("", "", ".~_^\\{}'`")
+_SENTENCE_ENDINGS = frozenset(".!?।॥")
+
+
+def _is_script_text(char: str, scheme: str) -> bool:
+    """Return whether *char* is script content rather than punctuation."""
+    return _scheme_for_text(char) == scheme and not unicodedata.category(char).startswith("P")
+
+
+def _romanize_run(text: str, scheme: str) -> str:
+    """Romanize one Indic-script run and remove only generated notation."""
+    out = _sanscript.transliterate(text, scheme, _sanscript.OPTITRANS)
+    lay_scheme = _sanscript.SCHEMES[_sanscript.OPTITRANS]
+    out = lay_scheme.to_lay_indian(out)
+    return out.translate(_ROMANIZATION_NOTATION)
+
+
 def romanize_token(word: str, language: str | None = None) -> str:
-    """Transliterate a single token to Latin when possible."""
+    """Romanize Indic text while preserving the token's original punctuation."""
     if _sanscript is None or not word:
         return word
-    stripped = word.strip()
-    if not stripped:
-        return word
-    scheme = _scheme_from_language_hint(language) or _scheme_for_text(stripped)
+
+    detected_scheme = _scheme_for_text(word)
+    scheme = detected_scheme or _scheme_from_language_hint(language)
     if scheme is None:
         return word
+
+    # Romanize script runs separately. Punctuation never enters the transliterator,
+    # so a real period remains while a dot emitted for .D/.N notation is removed.
+    parts: list[str] = []
+    run: list[str] = []
+
+    def flush_run() -> None:
+        if run:
+            parts.append(_romanize_run("".join(run), scheme))
+            run.clear()
+
     try:
-        out = _sanscript.transliterate(stripped, scheme, _sanscript.ITRANS)
-        if not out:
-            return word
-        lead = word[: len(word) - len(word.lstrip())]
-        trail = word[len(word.rstrip()) :]
-        return f"{lead}{out}{trail}"
+        for char in word:
+            if _is_script_text(char, scheme):
+                run.append(char)
+            else:
+                flush_run()
+                if char == "।" or char == "॥":
+                    parts.append(".")
+                else:
+                    parts.append(char)
+        flush_run()
+        return "".join(parts) or word
     except Exception:
         log.debug("Transliteration failed for %r", word, exc_info=True)
         return word
 
 
+def _capitalize_first_letter(text: str) -> str:
+    for index, char in enumerate(text):
+        if char.isalpha():
+            return f"{text[:index]}{char.upper()}{text[index + 1:]}"
+    return text
+
+
 def romanize_transcript(transcript: Transcript, language: str | None = None) -> Transcript:
-    """Return a new transcript with words transliterated to Latin where applicable."""
+    """Return casual romanized lyrics with sentence-style capitalization."""
     if _sanscript is None:
         log.warning(
             "indic-transliteration is not installed; romanization is a no-op. "
@@ -91,9 +131,20 @@ def romanize_transcript(transcript: Transcript, language: str | None = None) -> 
 
     new_segments: list[Segment] = []
     for seg in transcript.segments:
-        new_words = [
-            WordStamp(word=romanize_token(w.word, language), start=w.start, end=w.end)
-            for w in seg.words
-        ]
+        new_words: list[WordStamp] = []
+        sentence_start = True
+        for word in seg.words:
+            romanized = romanize_token(word.word, language)
+            changed = romanized != word.word
+            if changed and sentence_start:
+                romanized = _capitalize_first_letter(romanized)
+
+            new_words.append(WordStamp(word=romanized, start=word.start, end=word.end))
+
+            if any(char.isalnum() for char in romanized):
+                sentence_start = False
+            if any(char in _SENTENCE_ENDINGS for char in word.word):
+                sentence_start = True
+
         new_segments.append(Segment(words=new_words))
     return Transcript(segments=new_segments)
