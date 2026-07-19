@@ -1,5 +1,6 @@
 """Tests for YouTube title → LRCLib metadata heuristics."""
 
+from bhajan.stages.lyrics_fetch import _short_track_aliases
 from bhajan.utils import metadata_for_lrclib
 
 
@@ -16,3 +17,15 @@ def test_quoted_title_trailing_label() -> None:
     track, _, album = metadata_for_lrclib(title, None)
     assert track == "Test Song"
     assert "Some Movie" in album or album == "Some Movie"
+
+
+def test_noisy_quoted_bollywood_title_gets_short_search_aliases() -> None:
+    title = '"Senorita Zindagi Na Milegi Dobara" Full HD Video Song | Farhan Akhtar'
+    track, _, _ = metadata_for_lrclib(title, None)
+
+    assert track == "Senorita Zindagi Na Milegi Dobara"
+    assert _short_track_aliases(track) == [
+        "Senorita Zindagi Na",
+        "Senorita Zindagi",
+        "Senorita",
+    ]

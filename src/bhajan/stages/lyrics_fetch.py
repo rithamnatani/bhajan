@@ -173,43 +173,59 @@ def _search_ranked(
     duration: float | None,
 ) -> Transcript | None:
     """Run several /api/search queries and pick the best synced match."""
-    queries: list[dict[str, str]] = []
+    queries: list[tuple[dict[str, str], str]] = []
 
     q_plain = f"{track} {artist}".strip() if artist else track
-    queries.append({"q": q_plain})
-    queries.append({"q": track})
+    queries.append(({"q": q_plain}, track))
+    queries.append(({"q": track}, track))
     if album:
-        queries.append({"q": f"{track} {album}"})
-        queries.append({"track_name": track, "album_name": album})
+        queries.append(({"q": f"{track} {album}"}, track))
+        queries.append(({"track_name": track, "album_name": album}, track))
     if artist:
-        queries.append({"track_name": track, "artist_name": artist})
+        queries.append(({"track_name": track, "artist_name": artist}, track))
 
     seen_urls: set[str] = set()
     best: tuple[float, dict] | None = None
 
-    for params in queries:
-        try:
-            r = _SESSION.get(f"{LRCLIB_API_BASE}/search", params={**params, "limit": "20"}, timeout=15)
-            if r.status_code != 200:
+    def run_queries(items: list[tuple[dict[str, str], str]]) -> None:
+        nonlocal best
+        for params, track_guess in items:
+            try:
+                r = _SESSION.get(
+                    f"{LRCLIB_API_BASE}/search",
+                    params={**params, "limit": "20"},
+                    timeout=15,
+                )
+                if r.status_code != 200:
+                    continue
+                results = r.json()
+                if not isinstance(results, list):
+                    continue
+            except requests.RequestException as e:
+                stage.debug("Search failed for %s: %s", params, e)
                 continue
-            results = r.json()
-            if not isinstance(results, list):
-                continue
-        except requests.RequestException as e:
-            stage.debug("Search failed for %s: %s", params, e)
-            continue
 
-        url_key = str(sorted(params.items()))
-        if url_key in seen_urls:
-            continue
-        seen_urls.add(url_key)
-
-        for rec in results:
-            if not rec.get("syncedLyrics"):
+            url_key = str(sorted(params.items()))
+            if url_key in seen_urls:
                 continue
-            score = _score_record(rec, track, album, artist, duration)
-            if best is None or score > best[0]:
-                best = (score, rec)
+            seen_urls.add(url_key)
+
+            for rec in results:
+                if not rec.get("syncedLyrics"):
+                    continue
+                score = _score_record(rec, track_guess, album, artist, duration)
+                if best is None or score > best[0]:
+                    best = (score, rec)
+
+    run_queries(queries)
+
+    # Some Indian-label uploads quote the song and film as one title, e.g.
+    # "Senorita Zindagi Na Milegi Dobara" Full HD Video Song. If the precise
+    # search misses, progressively shorten that phrase and let duration/album
+    # ranking disambiguate the result.
+    if best is None:
+        aliases = _short_track_aliases(track)
+        run_queries([({"q": alias}, alias) for alias in aliases])
 
     if best is None:
         return None
@@ -223,6 +239,21 @@ def _search_ranked(
         rec.get("albumName"),
     )
     return _parse_lrc(rec["syncedLyrics"])
+
+
+def _short_track_aliases(track: str) -> list[str]:
+    """Return conservative prefix searches for noisy quoted video titles."""
+    words = re.findall(r"[\wÀ-ž]+", track, flags=re.UNICODE)
+    if len(words) < 4:
+        return []
+
+    max_words = min(3, len(words) - 1)
+    aliases: list[str] = []
+    for count in range(max_words, 0, -1):
+        alias = " ".join(words[:count]).strip()
+        if alias and alias.casefold() != track.casefold():
+            aliases.append(alias)
+    return aliases
 
 
 def _score_record(

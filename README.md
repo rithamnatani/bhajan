@@ -6,7 +6,8 @@
 bhajan "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 ```
 
-One command. Out comes a karaoke video with synced, highlighted lyrics.
+One command. Out comes an instrumental with synced, highlighted lyrics and an
+optional karaoke video.
 
 **New:** Use `--gui` for a fast GUI player (no video rendering needed) with synchronized lyrics!
 
@@ -48,11 +49,10 @@ Intermediate artifacts are cleaned up by default (use `--keep-intermediate` to r
 
 | Dependency | Purpose | Notes |
 |---|---|---|
-| **Python ≥ 3.10** | Runtime | |
-| **ffmpeg** | Audio/video processing | Must be on `PATH`. See installation below. |
-| **ffprobe** | Duration probing | Ships with ffmpeg. |
+| **Python ≥ 3.10** | Runtime | Installed automatically by `uv` when needed. |
+| **ffmpeg + ffprobe** | Audio/video processing | The Windows installer handles these automatically. |
 
-Optional (installed automatically via `pip`):
+Python packages installed automatically with bhajan:
 
 | Package | Purpose |
 |---|---|
@@ -75,47 +75,26 @@ Optional backends (install separately if needed):
 
 ### Windows
 
-#### 1. Install ffmpeg
-
-The easiest way on Windows:
+Open PowerShell and run one command:
 
 ```powershell
-# Using winget (ships with Windows 10/11)
-winget install Gyan.FFmpeg
-
-# Or using scoop
-scoop install ffmpeg
-
-# Or manually:
-# 1. Download a static build from https://www.gyan.dev/ffmpeg/builds/
-# 2. Extract to e.g. C:\ffmpeg
-# 3. Add C:\ffmpeg\bin to your PATH:
-#    [Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:\ffmpeg\bin", "User")
-# 4. Restart your terminal
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/rithamnatani/bhajan/main/install.ps1 | iex"
 ```
 
-Verify:
+The installer uses WinGet when available, with standalone-download fallbacks
+for both FFmpeg and `uv`. It asks `uv` for Python 3.12 and installs bhajan in an
+isolated tool environment. No source checkout, preinstalled Python, or manually
+managed virtual environment is required.
+
+The AI dependencies are large, so the first installation can take a while and
+use roughly 5 GB of disk space. The installer pins matching PyTorch and
+TorchAudio releases so a fresh tool installation cannot resolve an incompatible
+pair.
+
+To update later:
 
 ```powershell
-ffmpeg -version
-ffprobe -version
-```
-
-#### 2. Install Python
-
-```powershell
-winget install Python.Python.3.12
-```
-
-#### 3. Install bhajan
-
-```powershell
-# Using uv (recommended)
-cd C:\Users\Admin\dev\bhajan
-uv sync
-
-# Or using pip
-pip install -e .
+uv tool install --force https://github.com/rithamnatani/bhajan/archive/refs/heads/main.zip
 ```
 
 > **GPU acceleration (optional):** If you have an NVIDIA GPU and want faster
@@ -125,25 +104,14 @@ pip install -e .
 ### macOS / Linux
 
 ```bash
-# macOS
-brew install ffmpeg
-
-# Ubuntu / Debian
-sudo apt install ffmpeg
-
-# Arch
-sudo pacman -S ffmpeg
+curl -LsSf https://raw.githubusercontent.com/rithamnatani/bhajan/main/install.sh | sh
 ```
 
-Then:
+The script supports Homebrew, apt, dnf, and pacman. It installs FFmpeg, `uv`,
+Python 3.12, and bhajan. A system package-manager step may ask for your
+administrator password.
 
-```bash
-# Using uv (recommended)
-uv sync
-
-# Or using pip
-pip install -e .
-```
+Developers working from a checkout should instead use `uv sync`.
 
 ---
 
@@ -160,8 +128,11 @@ bhajan "https://www.youtube.com/watch?v=VIDEO_ID"
 | Flag | Description |
 |---|---|
 | `-o DIR`, `--output-dir DIR` | Custom output root (default: `./output`) |
-| `--whisper-model SIZE` | `tiny`, `base`, `small`, `medium`, `large-v3` (default: `small`) |
-| `--device cpu\|cuda` | Inference device (default: `cpu`) |
+| `--whisper-model SIZE` | `tiny`, `base`, `small`, `medium`, `large-v3` (default: `medium`) |
+| `--device auto\|cpu\|cuda` | Inference device (default: `auto`) |
+| `--language CODE` | Force one transcription language; auto-detect when omitted |
+| `--romanize` / `--no-romanize` | Use casual Latin lyrics or preserve native script |
+| `--no-fetch-lyrics` | Skip LRCLib and always use Whisper |
 | `--transcription-backend NAME` | `whisper` (default) or `parakeet` (NVIDIA GPU only) |
 | `--separation-backend NAME` | `demucs` (default) or `audio-separator` |
 | `--separator-model MODEL` | Model for audio-separator (default: `UVR-MDX-NET_Voc_FT.onnx`) |
@@ -172,7 +143,7 @@ bhajan "https://www.youtube.com/watch?v=VIDEO_ID"
 | `--skip-normalize` | Resume after normalization |
 | `--skip-separate` | Resume after separation |
 | `--skip-transcribe` | Resume after transcription |
-| `--skip-render` | Skip final video rendering |
+| `--video` | Render an MP4 in addition to the normal final outputs |
 | `--version` | Show version |
 
 **Note:** YouTube URLs are automatically cleaned - tracking parameters after `&` are stripped.
@@ -182,6 +153,9 @@ bhajan "https://www.youtube.com/watch?v=VIDEO_ID"
 ```bash
 # Fast GUI mode - no video rendering, just play with synced lyrics
 bhajan "https://www.youtube.com/watch?v=VIDEO_ID" --gui
+
+# Reopen a processed song using fuzzy local-library search
+bhajan gallan goodiyaan
 
 # GPU-accelerated with best quality backends
 bhajan "https://www.youtube.com/watch?v=VIDEO_ID" \
@@ -217,7 +191,10 @@ output/<Safe_Song_Name>/
 │   ├── karaoke.ass             # ASS subtitles (for burn-in)
 │   └── lyrics.lrc              # Simple LRC (fallback players)
 └── final/
-    └── final_karaoke.mp4       # Ready-to-play karaoke video
+    ├── instrumental.ogg        # Compact, GUI-compatible instrumental
+    ├── lyrics.txt              # Easy-to-read romanized lyrics
+    ├── transcript.json         # Word timing retained for local replay
+    └── final_karaoke.mp4       # Present when --video was requested
 ```
 
 ---

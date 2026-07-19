@@ -10,16 +10,23 @@ dependencies = [
     "demucs<4.1",
     "rich>=13.0.0",
     "click>=8.1.0",
-    "torch>=2.5.1",
-    "torchaudio>=2.5.1",
+    # PyTorch and TorchAudio publish as a matched release pair.
+    "torch==2.11.0",
+    "torchaudio==2.11.0",
     "soundfile>=0.13.1",
     "requests>=2.31.0",
     "pygame-ce>=2.5.0",
     "indic-transliteration>=2.3.0",
+    "rapidfuzz>=3.14.5",
 ]
 
 [project.scripts]
 bhajan = "bhajan.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/rithamnatani/bhajan"
+Repository = "https://github.com/rithamnatani/bhajan"
+Issues = "https://github.com/rithamnatani/bhajan/issues"
 
 [build-system]
 requires = ["hatchling"]

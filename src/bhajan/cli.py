@@ -3,6 +3,7 @@
 Usage::
 
     bhajan "<youtube_url>" [OPTIONS]
+    bhajan playboi carti   # fuzzy local library → GUI (words need not be quoted)
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from bhajan.config import (
 )
 from bhajan.logger import console, setup_logging
 from bhajan import subprocess_utils
+from bhajan.utils import looks_like_stream_url
 
 
 @click.command(
@@ -27,7 +29,13 @@ from bhajan import subprocess_utils
         '  Example: bhajan "https://www.youtube.com/watch?v=ID&list=..." --video'
     ),
 )
-@click.argument("youtube_url", type=str)
+@click.argument(
+    "url_or_query",
+    nargs=-1,
+    type=str,
+    required=True,
+    metavar="URL_OR_SEARCH",
+)
 @click.option(
     "--output-dir", "-o",
     type=click.Path(path_type=Path),
@@ -128,7 +136,7 @@ from bhajan import subprocess_utils
 )
 @click.version_option(version=__version__, prog_name="bhajan")
 def main(
-    youtube_url: str,
+    url_or_query: tuple[str, ...],
     output_dir: Path | None,
     whisper_model: str,
     device: str,
@@ -148,14 +156,43 @@ def main(
     gui: bool,
     video: bool,
 ) -> None:
-    """Generate instrumental + romanized lyrics (and optional video / GUI) from a YouTube URL.
+    """Generate karaoke from a stream URL, or fuzzy-open a song already under ``--output-dir``.
 
-    By default writes ``final/instrumental.m4a`` and ``final/lyrics.txt``.
-    Use ``--video`` for an MP4 render, or ``--gui`` for the interactive player.
+    **URLs:** Any ``http(s)://`` link, or a YouTube host without a scheme
+    (``youtu.be/...``, ``youtube.com/...``), runs the download pipeline.
+
+    **Local search:** Any other text (one or more words) fuzzy-matches folder names
+    under the output directory (up to five picks); choose a number to open the GUI.
+
+    By default writes ``final/instrumental.ogg``, ``final/lyrics.txt``, and
+    ``final/transcript.json``. Use ``--video`` for an MP4 render, or ``--gui``
+    for the interactive player after processing a URL.
     """
     setup_logging(verbose)
 
-    # ---- pre-flight checks ----
+    qraw = " ".join(url_or_query).strip()
+    if not qraw:
+        raise click.UsageError("Missing URL or search text.")
+
+    out = output_dir or Path("output")
+
+    if not looks_like_stream_url(qraw):
+        if video:
+            console.print(
+                "[bold red]Error:[/] --video requires a stream URL, not a local search string."
+            )
+            raise SystemExit(1)
+        if gui:
+            console.print(
+                "[dim]Note:[/] --gui is only used after processing a URL; "
+                "local search always opens the player."
+            )
+        from bhajan.local_library import run_local_fuzzy_gui  # noqa: PLC0415
+
+        run_local_fuzzy_gui(qraw, out)
+        return
+
+    # ---- pre-flight checks (download pipeline) ----
     _preflight()
 
     resolved_device = resolve_device(device)
@@ -168,7 +205,7 @@ def main(
     from bhajan.pipeline import KaraokePipeline  # noqa: PLC0415
 
     pipeline = KaraokePipeline(
-        url=youtube_url,
+        url=qraw,
         output_dir=output_dir,
         whisper_model=whisper_model,
         transcription_backend=transcription_backend,
