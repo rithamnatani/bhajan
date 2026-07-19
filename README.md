@@ -81,9 +81,10 @@ Open PowerShell and run one command:
 powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/rithamnatani/bhajan/main/install.ps1 | iex"
 ```
 
-The installer uses WinGet when available to install FFmpeg and `uv`, asks `uv`
-for Python 3.12, and installs bhajan in an isolated tool environment. No source
-checkout or manually managed virtual environment is required.
+The installer uses WinGet when available, with standalone-download fallbacks
+for both FFmpeg and `uv`. It asks `uv` for Python 3.12 and installs bhajan in an
+isolated tool environment. No source checkout, preinstalled Python, or manually
+managed virtual environment is required.
 
 The AI dependencies are large, so the first installation can take a while and
 use roughly 5 GB of disk space. The installer pins matching PyTorch and

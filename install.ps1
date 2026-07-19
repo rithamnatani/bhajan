@@ -59,6 +59,37 @@ function Resolve-Uv {
     return Find-WinGetExecutable "astral-sh.uv_*" "uv.exe"
 }
 
+function Install-PortableFfmpeg {
+    $installRoot = Join-Path $env:LOCALAPPDATA "bhajan\ffmpeg"
+    $archive = Join-Path $env:TEMP "bhajan-ffmpeg.zip"
+
+    Write-Host "Downloading a portable FFmpeg build..."
+    New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
+    Invoke-WebRequest `
+        -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" `
+        -OutFile $archive
+
+    Write-Host "Extracting FFmpeg..."
+    Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
+    Expand-Archive -LiteralPath $archive -DestinationPath $installRoot -Force
+    Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
+
+    $ffmpegPath = Get-ChildItem -LiteralPath $installRoot -Recurse -File `
+        -Filter "ffmpeg.exe" | Select-Object -First 1 -ExpandProperty FullName
+    $ffprobePath = Get-ChildItem -LiteralPath $installRoot -Recurse -File `
+        -Filter "ffprobe.exe" | Select-Object -First 1 -ExpandProperty FullName
+    if (-not $ffmpegPath -or -not $ffprobePath) {
+        throw "The portable FFmpeg archive did not contain ffmpeg.exe and ffprobe.exe."
+    }
+
+    Add-UserPath (Split-Path -Parent $ffmpegPath)
+    return @{
+        Ffmpeg = $ffmpegPath
+        Ffprobe = $ffprobePath
+    }
+}
+
 Write-Host "Installing bhajan and its system dependencies..." -ForegroundColor Cyan
 
 $winget = Get-Command winget -ErrorAction SilentlyContinue
@@ -69,12 +100,14 @@ if (-not $uv) {
         & winget install --id astral-sh.uv --exact `
             --accept-package-agreements --accept-source-agreements --silent
     }
-    else {
-        Write-Host "Installing uv with Astral's official installer..."
-        Invoke-RestMethod "https://astral.sh/uv/install.ps1" | Invoke-Expression
-    }
     Refresh-ProcessPath
     $uv = Resolve-Uv
+    if (-not $uv) {
+        Write-Host "Installing uv with Astral's official installer..."
+        Invoke-RestMethod "https://astral.sh/uv/install.ps1" | Invoke-Expression
+        Refresh-ProcessPath
+        $uv = Resolve-Uv
+    }
 }
 
 if (-not $uv) {
@@ -97,25 +130,29 @@ if (-not $ffprobe -and $existingFfprobe) {
     $ffprobe = $existingFfprobe
 }
 if (-not $ffmpeg -or -not $ffprobe) {
-    if (-not $winget) {
-        throw "FFmpeg is required and WinGet is unavailable. Install FFmpeg, then run this installer again."
+    if ($winget) {
+        Write-Host "Installing FFmpeg with WinGet..."
+        & winget install --id Gyan.FFmpeg --exact `
+            --accept-package-agreements --accept-source-agreements --silent
+        Refresh-ProcessPath
+
+        $ffmpegPath = Find-WinGetExecutable "Gyan.FFmpeg_*" "ffmpeg.exe"
+        if ($ffmpegPath) {
+            Add-UserPath (Split-Path -Parent $ffmpegPath)
+        }
+        $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
+        $ffprobe = Get-Command ffprobe -ErrorAction SilentlyContinue
     }
 
-    Write-Host "Installing FFmpeg..."
-    & winget install --id Gyan.FFmpeg --exact `
-        --accept-package-agreements --accept-source-agreements --silent
-    Refresh-ProcessPath
-
-    $ffmpegPath = Find-WinGetExecutable "Gyan.FFmpeg_*" "ffmpeg.exe"
-    if ($ffmpegPath) {
-        Add-UserPath (Split-Path -Parent $ffmpegPath)
+    if (-not $ffmpeg -or -not $ffprobe) {
+        $portable = Install-PortableFfmpeg
+        $ffmpeg = $portable.Ffmpeg
+        $ffprobe = $portable.Ffprobe
     }
-    $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
-    $ffprobe = Get-Command ffprobe -ErrorAction SilentlyContinue
 }
 
 if (-not $ffmpeg -or -not $ffprobe) {
-    throw "FFmpeg was installed but is not available on PATH. Open a new PowerShell window and run this installer again."
+    throw "FFmpeg could not be installed."
 }
 
 Write-Host "Installing bhajan as an isolated uv tool..."
