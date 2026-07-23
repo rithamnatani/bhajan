@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import sys
 from pathlib import Path
 
 from bhajan import subprocess_utils
@@ -55,6 +56,7 @@ class KaraokePipeline:
         language: str | None = None,
         romanize: bool = True,
         fetch_lyrics: bool = False,
+        confirm_lyrics: bool = True,
         keep_intermediate: bool = False,
         skip_download: bool = False,
         skip_normalize: bool = False,
@@ -74,6 +76,7 @@ class KaraokePipeline:
         self.language = language
         self.romanize = romanize
         self.fetch_lyrics = fetch_lyrics
+        self.confirm_lyrics = confirm_lyrics
         self.keep_intermediate = keep_intermediate
         self.gui = gui
 
@@ -193,7 +196,10 @@ class KaraokePipeline:
         else:
             if self.fetch_lyrics:
                 # Try to fetch lyrics from LRCLib
-                from bhajan.stages.lyrics_fetch import fetch_lyrics_from_youtube_title  # noqa: PLC0415
+                from bhajan.stages.lyrics_fetch import (  # noqa: PLC0415
+                    fetch_lyrics_match_from_youtube_title,
+                    review_online_lyrics,
+                )
 
                 # Get metadata for lyrics search
                 from yt_dlp import YoutubeDL  # noqa: PLC0415
@@ -204,16 +210,29 @@ class KaraokePipeline:
                     duration = info.get("duration")
                     album_name = info.get("album")
 
-                transcript = fetch_lyrics_from_youtube_title(
+                lyrics_match, parsed_track = fetch_lyrics_match_from_youtube_title(
                     title=raw_title,
                     artist_meta=artist_meta,
                     duration=float(duration) if duration is not None else None,
                     album_youtube=album_name,
                 )
+
+                if (
+                    lyrics_match is not None
+                    and self.confirm_lyrics
+                    and sys.stdin.isatty()
+                ):
+                    lyrics_match = review_online_lyrics(
+                        lyrics_match,
+                        search_query=parsed_track,
+                        duration=float(duration) if duration is not None else None,
+                    )
+
+                transcript = lyrics_match.transcript if lyrics_match is not None else None
                 
                 if transcript is None:
                     self.stage_logger.warning(
-                        "Could not fetch lyrics from LRCLib, falling back to transcription"
+                        "Online lyrics unavailable or declined; falling back to transcription"
                     )
                     transcript = stage_transcribe(
                         vocals_path,

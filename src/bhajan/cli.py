@@ -74,6 +74,12 @@ from bhajan.utils import looks_like_stream_url
     help="Skip LRCLib lookup and always transcribe with Whisper.",
 )
 @click.option(
+    "--confirm-lyrics/--no-confirm-lyrics",
+    default=True,
+    show_default=True,
+    help="Review online lyrics before use; disable for unattended runs.",
+)
+@click.option(
     "--separation-backend",
     type=click.Choice(["demucs", "audio-separator"]),
     default="demucs",
@@ -143,6 +149,7 @@ def main(
     language: str | None,
     romanize: bool,
     no_fetch_lyrics: bool,
+    confirm_lyrics: bool,
     separation_backend: str,
     transcription_backend: str,
     demucs_model: str,
@@ -216,6 +223,7 @@ def main(
         language=language,
         romanize=romanize,
         fetch_lyrics=not no_fetch_lyrics,
+        confirm_lyrics=confirm_lyrics,
         keep_intermediate=keep_intermediate,
         skip_download=skip_download,
         skip_normalize=skip_normalize,

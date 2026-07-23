@@ -107,19 +107,39 @@ def metadata_for_lrclib(title: str, artist_meta: str | None) -> tuple[str, str, 
     quoted = extract_quoted_phrase(raw)
 
     segments = [s.strip() for s in re.split(r"\s*\|\s*", raw) if s.strip()]
-    while segments and is_label_segment(segments[-1]):
+    while segments and (
+        is_label_segment(segments[-1]) or not strip_segment_noise(segments[-1])
+    ):
         segments.pop()
 
     track = ""
     album = ""
+    inferred_artist = ""
+
+    # Indian film uploads commonly use:
+    #   Movie - Song feat Actor & Actor | Composer
+    # Here ``feat`` names the people in the video, not musical collaborators.
+    # Treat the left side as the film/album, the right side as the song, and the
+    # next pipe segment as the musical artist.  Without this rule, a broad
+    # fallback for "Bang Bang" can select an unrelated English song.
+    movie_song = None
+    if not quoted and segments:
+        movie_song = re.match(
+            r"(?i)^(.+?)\s+-\s+(.+?)\s+(?:ft|feat)\.?\s+.+$",
+            strip_segment_noise(segments[0]),
+        )
+    if movie_song and len(segments) >= 2:
+        album = movie_song.group(1).strip()
+        track = movie_song.group(2).strip()
+        inferred_artist = strip_segment_noise(segments[1])
 
     if quoted:
         track = quoted
-    elif segments:
+    elif not track and segments:
         track = strip_segment_noise(segments[0])
 
     # Album / film: typically the next non-label segment after the title segment
-    if len(segments) >= 2:
+    if not album and len(segments) >= 2:
         for seg in segments[1:]:
             if is_label_segment(seg):
                 continue
@@ -138,6 +158,8 @@ def metadata_for_lrclib(title: str, artist_meta: str | None) -> tuple[str, str, 
         am = str(artist_meta).strip()
         if len(am) < 100 and "|" not in am and "VIDEO" not in am.upper():
             artist = am
+    elif inferred_artist:
+        artist = inferred_artist
 
     return track, artist, album
 
