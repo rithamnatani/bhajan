@@ -122,6 +122,17 @@ def test_prepare_gui_audio_prefers_ogg(tmp_path: Path) -> None:
     assert prepare_gui_audio(song) == ogg
 
 
+def test_prepare_gui_audio_uses_requested_mode(tmp_path: Path) -> None:
+    song = tmp_path / "song"
+    final = song / "final"
+    final.mkdir(parents=True)
+    (final / "instrumental.ogg").write_bytes(b"instrumental")
+    guided = final / "guided.ogg"
+    guided.write_bytes(b"guided")
+
+    assert prepare_gui_audio(song, "guided") == guided
+
+
 def test_prepare_gui_audio_converts_legacy_m4a(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -19,8 +19,9 @@ FFPROBE_BIN: str = shutil.which("ffprobe") or "ffprobe"
 # Whisper model size. Options: tiny, base, small, medium, large-v3
 DEFAULT_WHISPER_MODEL: str = "medium"
 
-# Demucs model.  "htdemucs_ft" is fine-tuned for higher quality separation.
-DEFAULT_DEMUCS_MODEL: str = "htdemucs_ft"
+# Demucs model. htdemucs is one model; htdemucs_ft is a four-model bag that is
+# somewhat higher quality but roughly four times slower on CPU.
+DEFAULT_DEMUCS_MODEL: str = "htdemucs"
 
 # Device for inference: "auto", "cpu", or "cuda"
 DEFAULT_DEVICE: str = "auto"

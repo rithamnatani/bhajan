@@ -80,6 +80,13 @@ from bhajan.utils import looks_like_stream_url
     help="Review online lyrics before use; disable for unattended runs.",
 )
 @click.option(
+    "--karaoke-mode",
+    type=click.Choice(["practice", "guided", "instrumental"]),
+    default="instrumental",
+    show_default=True,
+    help="Audio mode for GUI/local replay. --video always saves all three modes.",
+)
+@click.option(
     "--separation-backend",
     type=click.Choice(["demucs", "audio-separator"]),
     default="demucs",
@@ -138,7 +145,7 @@ from bhajan.utils import looks_like_stream_url
 @click.option(
     "--video",
     is_flag=True,
-    help="Also render an MP4 karaoke video in final/ (default: off).",
+    help="Save practice, guided, and instrumental GUI-style MP4s in final/.",
 )
 @click.version_option(version=__version__, prog_name="bhajan")
 def main(
@@ -150,6 +157,7 @@ def main(
     romanize: bool,
     no_fetch_lyrics: bool,
     confirm_lyrics: bool,
+    karaoke_mode: str,
     separation_backend: str,
     transcription_backend: str,
     demucs_model: str,
@@ -171,9 +179,9 @@ def main(
     **Local search:** Any other text (one or more words) fuzzy-matches folder names
     under the output directory (up to five picks); choose a number to open the GUI.
 
-    By default writes ``final/instrumental.ogg``, ``final/lyrics.txt``, and
-    ``final/transcript.json``. Use ``--video`` for an MP4 render, or ``--gui``
-    for the interactive player after processing a URL.
+    By default writes three audio modes, ``final/lyrics.txt``, and
+    ``final/transcript.json``. Use ``--video`` for three GUI-style MP4s, or
+    ``--gui`` for the interactive player after processing a URL.
     """
     setup_logging(verbose)
 
@@ -196,7 +204,7 @@ def main(
             )
         from bhajan.local_library import run_local_fuzzy_gui  # noqa: PLC0415
 
-        run_local_fuzzy_gui(qraw, out)
+        run_local_fuzzy_gui(qraw, out, karaoke_mode=karaoke_mode)
         return
 
     # ---- pre-flight checks (download pipeline) ----
@@ -224,6 +232,7 @@ def main(
         romanize=romanize,
         fetch_lyrics=not no_fetch_lyrics,
         confirm_lyrics=confirm_lyrics,
+        karaoke_mode=karaoke_mode,
         keep_intermediate=keep_intermediate,
         skip_download=skip_download,
         skip_normalize=skip_normalize,

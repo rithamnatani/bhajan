@@ -14,12 +14,10 @@ import shutil
 import sys
 from pathlib import Path
 
-from bhajan import subprocess_utils
 from bhajan.config import (
     DEFAULT_DEMUCS_MODEL,
     DEFAULT_DEVICE,
     DEFAULT_WHISPER_MODEL,
-    FFMPEG_BIN,
     SUBDIRS,
 )
 from bhajan.romanize import romanize_transcript
@@ -33,7 +31,8 @@ from bhajan.stages.transcription import (
 )
 from bhajan.stages.transcription_base import Segment, Transcript, WordStamp
 from bhajan.stages.subtitles import generate_ass, generate_lrc
-from bhajan.stages.render import render_video as stage_render
+from bhajan.stages.audio_modes import export_audio_modes
+from bhajan.stages.render import render_video_suite
 from bhajan.utils import ensure_dirs, safe_filename, clean_youtube_url
 
 log = logging.getLogger("bhajan")
@@ -57,6 +56,7 @@ class KaraokePipeline:
         romanize: bool = True,
         fetch_lyrics: bool = False,
         confirm_lyrics: bool = True,
+        karaoke_mode: str = "instrumental",
         keep_intermediate: bool = False,
         skip_download: bool = False,
         skip_normalize: bool = False,
@@ -77,6 +77,7 @@ class KaraokePipeline:
         self.romanize = romanize
         self.fetch_lyrics = fetch_lyrics
         self.confirm_lyrics = confirm_lyrics
+        self.karaoke_mode = karaoke_mode
         self.keep_intermediate = keep_intermediate
         self.gui = gui
 
@@ -110,12 +111,13 @@ class KaraokePipeline:
         self.stage_logger.debug("Skip flags: %s", self._skip)
         
         # ---- Determine safe song name and layout directories ----
+        video_info: dict | None = None
         if not self._skip["download"]:
             # We need metadata to name the output folder, so we peek at it
             from yt_dlp import YoutubeDL  # noqa: PLC0415
             with YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
-                info = ydl.extract_info(self.url, download=False)
-                title = info.get("title") or "unnamed"
+                video_info = ydl.extract_info(self.url, download=False)
+                title = video_info.get("title") or "unnamed"
         else:
             title = "resumed_session"
 
@@ -202,13 +204,15 @@ class KaraokePipeline:
                 )
 
                 # Get metadata for lyrics search
-                from yt_dlp import YoutubeDL  # noqa: PLC0415
-                with YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
-                    info = ydl.extract_info(self.url, download=False)
-                    raw_title = info.get("title") or "unnamed"
-                    artist_meta = info.get("artist") or info.get("creator")
-                    duration = info.get("duration")
-                    album_name = info.get("album")
+                if video_info is None:
+                    from yt_dlp import YoutubeDL  # noqa: PLC0415
+
+                    with YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+                        video_info = ydl.extract_info(self.url, download=False)
+                raw_title = video_info.get("title") or "unnamed"
+                artist_meta = video_info.get("artist") or video_info.get("creator")
+                duration = video_info.get("duration")
+                album_name = video_info.get("album")
 
                 lyrics_match, parsed_track = fetch_lyrics_match_from_youtube_title(
                     title=raw_title,
@@ -257,11 +261,16 @@ class KaraokePipeline:
             stage_save_transcript(transcript, self.transcript_dir)
 
         # ---- Stage 5: Subtitles ----
-        ass_path = generate_ass(transcript, self.subtitles_dir)
+        generate_ass(transcript, self.subtitles_dir)
         generate_lrc(transcript, self.subtitles_dir)
 
         # ---- Stage 6: Final outputs (instrumental + lyrics), optional video / GUI ----
-        lyrics_path = self._export_simple_final(instrumental_path, transcript)
+        lyrics_path, audio_modes = self._export_simple_final(
+            original_path=norm_path,
+            vocals_path=vocals_path,
+            instrumental_path=instrumental_path,
+            transcript=transcript,
+        )
 
         if self.gui:
             # Launch GUI player instead of rendering video
@@ -271,18 +280,20 @@ class KaraokePipeline:
             # Get title for window
             title = self.song_dir.name.replace("_", " ") if self.song_dir else "Karaoke"
             play_karaoke(
-                audio_path=instrumental_path,
+                audio_path=audio_modes[self.karaoke_mode],
                 transcript=transcript,
                 title=title,
             )
             (self.final_dir / "gui_session.txt").write_text("GUI karaoke session completed.\n")
             final_path = lyrics_path
         elif not self._skip["render"]:
-            final_path = stage_render(
-                instrumental_path=instrumental_path,
-                ass_path=ass_path,
-                output_path=self.final_dir / "final_karaoke.mp4",
+            videos = render_video_suite(
+                title=self.song_dir.name.replace("_", " "),
+                transcript=transcript,
+                audio_tracks=audio_modes,
+                output_dir=self.final_dir,
             )
+            final_path = videos["instrumental"]
         else:
             final_path = lyrics_path
 
@@ -296,39 +307,23 @@ class KaraokePipeline:
             console.print(f"\n[bold green]Done![/]  Primary output -> {final_path}")
         return final_path
 
-    def _export_simple_final(self, instrumental_path: Path, transcript: Transcript) -> Path:
-        """Encode GUI-safe audio in ``final/`` and write the lyric artifacts."""
+    def _export_simple_final(
+        self,
+        *,
+        original_path: Path,
+        vocals_path: Path,
+        instrumental_path: Path,
+        transcript: Transcript,
+    ) -> tuple[Path, dict[str, Path]]:
+        """Write the three GUI-safe audio modes and lyric artifacts."""
         self.final_dir.mkdir(parents=True, exist_ok=True)
-        audio_ogg = self.final_dir / "instrumental.ogg"
-        try:
-            subprocess_utils.check_call(
-                [
-                    FFMPEG_BIN,
-                    "-y",
-                    "-i",
-                    str(instrumental_path),
-                    "-c:a",
-                    "libvorbis",
-                    "-q:a",
-                    "5",
-                    str(audio_ogg),
-                ],
-                timeout=600,
-            )
-            self.stage_logger.info("Wrote instrumental audio -> %s", audio_ogg)
-        except Exception as exc:
-            self.stage_logger.warning(
-                "Could not encode instrumental to OGG (%s); copying WAV instead.",
-                exc,
-            )
-            if audio_ogg.exists():
-                try:
-                    audio_ogg.unlink()
-                except OSError:
-                    pass
-            audio_wav = self.final_dir / "instrumental.wav"
-            shutil.copy2(instrumental_path, audio_wav)
-            self.stage_logger.info("Wrote instrumental audio -> %s", audio_wav)
+        audio_modes = export_audio_modes(
+            original_path=original_path,
+            vocals_path=vocals_path,
+            instrumental_path=instrumental_path,
+            transcript=transcript,
+            output_dir=self.final_dir,
+        )
 
         lyrics_path = self.final_dir / "lyrics.txt"
         lines = [seg.text.strip() for seg in transcript.segments if seg.text.strip()]
@@ -342,7 +337,7 @@ class KaraokePipeline:
         )
         self.stage_logger.info("Wrote word timings for replay -> %s", transcript_path)
 
-        return lyrics_path
+        return lyrics_path, audio_modes
 
     def _cleanup_intermediate(self) -> None:
         """Remove large intermediate files after a successful run."""

@@ -103,45 +103,65 @@ class DemucsSeparator(SeparatorBackend):
 
         # Demucs outputs into <output_dir>/<model>/<song_name>/
         # We invoke it via the Python module for reliability across platforms
-        cmd = [
-            sys.executable, "-m", "bhajan._demucs_wrapper",
-            "--name", self.model,
-            "--out", str(output_dir),
-            "--device", self.device,
-            str(audio_path),
-        ]
+        def command(model: str, device: str) -> list[str]:
+            return [
+                sys.executable,
+                "-m",
+                "bhajan._demucs_wrapper",
+                "--name",
+                model,
+                "--out",
+                str(output_dir),
+                "--device",
+                device,
+                str(audio_path),
+            ]
+
+        cmd = command(self.model, self.device)
         stage.debug("Running command: %s", " ".join(cmd))
 
         # demucs can spawn heavy GPU processes; give generous timeout
+        used_model = self.model
         try:
             subprocess_utils.check_call(cmd, timeout=3600)
-        except subprocess.CalledProcessError:
-            # If CUDA failed, try falling back to CPU
+        except subprocess.CalledProcessError as initial_error:
+            attempts: list[tuple[str, str]] = []
             if self.device == "cuda":
-                stage.warning("CUDA separation failed, falling back to CPU...")
-                cmd_cpu = [
-                    sys.executable, "-m", "bhajan._demucs_wrapper",
-                    "--name", self.model,
-                    "--out", str(output_dir),
-                    "--device", "cpu",
-                    str(audio_path),
-                ]
-                subprocess_utils.check_call(cmd_cpu, timeout=3600)
+                attempts.append((self.model, "cpu"))
+            if self.model != "htdemucs":
+                attempts.append(("htdemucs", "cpu"))
+
+            last_error = initial_error
+            for fallback_model, fallback_device in dict.fromkeys(attempts):
+                stage.warning(
+                    "Demucs failed; retrying with model=%s on %s...",
+                    fallback_model,
+                    fallback_device,
+                )
+                try:
+                    subprocess_utils.check_call(
+                        command(fallback_model, fallback_device),
+                        timeout=3600,
+                    )
+                    used_model = fallback_model
+                    break
+                except subprocess.CalledProcessError as exc:
+                    last_error = exc
             else:
-                raise
+                raise last_error
 
         # Demucs creates: <output_dir>/<model>/<filename_no_ext>/vocals.wav  etc.
         # We need to locate them regardless of exact nesting
         src_name = audio_path.stem
-        search_root = output_dir / self.model / src_name
+        search_root = output_dir / used_model / src_name
         stage.debug("Looking for Demucs output in: %s", search_root)
 
         if not search_root.exists():
             # Sometimes demucs uses the original filename including extension
-            search_root = output_dir / self.model / audio_path.name
+            search_root = output_dir / used_model / audio_path.name
             if not search_root.exists():
                 # Glob as fallback
-                candidates = list((output_dir / self.model).glob(f"**/{src_name}"))
+                candidates = list((output_dir / used_model).glob(f"**/{src_name}"))
                 if candidates:
                     search_root = candidates[0]
                     stage.debug("Found output via glob at: %s", search_root)
