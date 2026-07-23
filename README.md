@@ -137,14 +137,15 @@ bhajan "https://www.youtube.com/watch?v=VIDEO_ID"
 | `--transcription-backend NAME` | `whisper` (default) or `parakeet` (NVIDIA GPU only) |
 | `--separation-backend NAME` | `demucs` (default) or `audio-separator` |
 | `--separator-model MODEL` | Model for audio-separator (default: `UVR-MDX-NET_Voc_FT.onnx`) |
-| `--gui` | Launch GUI player instead of rendering video |
+| `--gui` | Launch the GUI player after processing |
+| `--karaoke-mode MODE` | GUI/local replay audio: `practice`, `guided`, or `instrumental` |
 | `--keep-intermediate` | Retain source/stems/etc (default: cleanup) |
 | `-v`, `--verbose` | Debug-level logging |
 | `--skip-download` | Resume after download stage |
 | `--skip-normalize` | Resume after normalization |
 | `--skip-separate` | Resume after separation |
 | `--skip-transcribe` | Resume after transcription |
-| `--video` | Render an MP4 in addition to the normal final outputs |
+| `--video` | Save GUI-style practice, guided, and instrumental MP4s |
 | `--version` | Show version |
 
 **Note:** YouTube URLs are automatically cleaned - tracking parameters after `&` are stripped.
@@ -154,6 +155,12 @@ bhajan "https://www.youtube.com/watch?v=VIDEO_ID"
 ```bash
 # Fast GUI mode - no video rendering, just play with synced lyrics
 bhajan "https://www.youtube.com/watch?v=VIDEO_ID" --gui
+
+# Save three local MP4s with the same scrolling lyric view as the GUI
+bhajan "https://www.youtube.com/watch?v=VIDEO_ID" --video
+
+# Practice in the GUI with the original vocals still enabled
+bhajan "https://www.youtube.com/watch?v=VIDEO_ID" --gui --karaoke-mode practice
 
 # Reopen a processed song using fuzzy local-library search
 bhajan gallan goodiyaan
@@ -180,6 +187,20 @@ to list alternatives, search with a corrected title, paste a direct `.lrc` /
 `.txt` or LRCLib API URL, or fall back to Whisper transcription. Use
 `--no-confirm-lyrics` only for unattended runs.
 
+### Karaoke modes
+
+Every processed song keeps three local audio modes. With `--video`, the same
+control-free GUI-style lyric animation is encoded once and reused for three
+MP4 files:
+
+- **Practice:** original music and vocals throughout.
+- **Guided:** vocals through the first lyric line, followed by the instrumental.
+- **Instrumental:** no intentional lead vocals.
+
+The normal `htdemucs` separator is now the default because it is one model and
+is much faster on a CPU. For a slower four-model separation, explicitly pass
+`--demucs-model htdemucs_ft`.
+
 ---
 
 ## Output Layout
@@ -198,10 +219,14 @@ output/<Safe_Song_Name>/
 │   ├── karaoke.ass             # ASS subtitles (for burn-in)
 │   └── lyrics.lrc              # Simple LRC (fallback players)
 └── final/
-    ├── instrumental.ogg        # Compact, GUI-compatible instrumental
+    ├── practice.ogg            # Original mix with vocals
+    ├── guided.ogg              # First-line vocal cue, then instrumental
+    ├── instrumental.ogg        # No intentional lead vocals
     ├── lyrics.txt              # Easy-to-read romanized lyrics
     ├── transcript.json         # Word timing retained for local replay
-    └── final_karaoke.mp4       # Present when --video was requested
+    ├── practice.mp4            # Present when --video was requested
+    ├── guided.mp4              # Present when --video was requested
+    └── instrumental.mp4        # Present when --video was requested
 ```
 
 ---

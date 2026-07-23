@@ -113,18 +113,24 @@ def _display_name(song_dir: Path) -> str:
     return song_dir.name.replace("_", " ")
 
 
-def _audio_path(song_dir: Path) -> Path:
+def _audio_path(song_dir: Path, karaoke_mode: str = "instrumental") -> Path:
     final = song_dir / "final"
-    for name in _AUDIO_FILENAMES:
+    preferred = tuple(
+        f"{karaoke_mode}.{extension}" for extension in ("ogg", "wav", "m4a")
+    )
+    for name in preferred + _AUDIO_FILENAMES:
         candidate = final / name
         if candidate.exists():
             return candidate
     raise FileNotFoundError(f"No instrumental audio found in {final}")
 
 
-def prepare_gui_audio(song_dir: Path) -> Path:
+def prepare_gui_audio(
+    song_dir: Path,
+    karaoke_mode: str = "instrumental",
+) -> Path:
     """Return pygame-compatible audio, converting legacy M4A output once."""
-    audio = _audio_path(song_dir)
+    audio = _audio_path(song_dir, karaoke_mode)
     if audio.suffix.lower() != ".m4a":
         return audio
 
@@ -201,6 +207,7 @@ def run_local_fuzzy_gui(
     output_root: Path,
     *,
     score_cutoff: int = _DEFAULT_SCORE_CUTOFF,
+    karaoke_mode: str = "instrumental",
 ) -> None:
     """Prompt for a song match and open the GUI player, or exit with a message."""
     songs = discover_playable_songs(output_root)
@@ -236,7 +243,7 @@ def run_local_fuzzy_gui(
         raise SystemExit(1) from exc
 
     try:
-        audio = prepare_gui_audio(song_dir)
+        audio = prepare_gui_audio(song_dir, karaoke_mode)
     except RuntimeError as exc:
         console.print(f"[bold red]Could not prepare audio for playback:[/] {exc}")
         raise SystemExit(1) from exc

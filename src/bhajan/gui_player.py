@@ -17,6 +17,16 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import font as tkfont
 
+from bhajan.karaoke_visuals import (
+    ACTIVE_COLOR,
+    FUTURE_COLOR,
+    LYRICS_BG,
+    LYRICS_BORDER,
+    TITLE_COLOR,
+    WINDOW_BG,
+    line_color,
+    line_index_at_time,
+)
 from bhajan.logger import StageLogger
 from bhajan.stages.transcription_base import Segment, Transcript
 
@@ -127,33 +137,33 @@ class KaraokeGUI:
         self.root.title(f"bhajan — {self.title}")
         self.root.geometry("720x640")
         self.root.minsize(480, 400)
-        self.root.configure(bg="#0c0c1e")
+        self.root.configure(bg=WINDOW_BG)
 
         self._setup_styles()
 
-        main_frame = tk.Frame(self.root, bg="#0c0c1e")
+        main_frame = tk.Frame(self.root, bg=WINDOW_BG)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=12)
 
         self.title_label = tk.Label(
             main_frame,
             text=self.title,
             font=self.title_font,
-            bg="#0c0c1e",
-            fg="#ffffff",
+            bg=WINDOW_BG,
+            fg=TITLE_COLOR,
             wraplength=680,
             justify=tk.CENTER,
             anchor="center",
         )
         self.title_label.pack(pady=(0, 12), fill=tk.X)
 
-        lyrics_frame = tk.Frame(main_frame, bg="#0c0c1e")
+        lyrics_frame = tk.Frame(main_frame, bg=WINDOW_BG)
         lyrics_frame.pack(fill=tk.BOTH, expand=True, pady=6)
 
         self.lyrics_canvas = tk.Canvas(
             lyrics_frame,
-            bg="#12122a",
+            bg=LYRICS_BG,
             highlightthickness=1,
-            highlightbackground="#2a2a44",
+            highlightbackground=LYRICS_BORDER,
             bd=0,
         )
         self.lyrics_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -162,7 +172,7 @@ class KaraokeGUI:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.lyrics_canvas.configure(yscrollcommand=scrollbar.set)
 
-        self.lyrics_inner = tk.Frame(self.lyrics_canvas, bg="#12122a")
+        self.lyrics_inner = tk.Frame(self.lyrics_canvas, bg=LYRICS_BG)
         self._inner_canvas_id = self.lyrics_canvas.create_window(
             (0, 0),
             window=self.lyrics_inner,
@@ -176,17 +186,17 @@ class KaraokeGUI:
         lyrics_frame.bind("<Enter>", self._lyrics_enter)
         lyrics_frame.bind("<Leave>", self._lyrics_leave)
 
-        progress_frame = tk.Frame(main_frame, bg="#0c0c1e")
+        progress_frame = tk.Frame(main_frame, bg=WINDOW_BG)
         progress_frame.pack(fill=tk.X, pady=(12, 6))
 
-        time_frame = tk.Frame(progress_frame, bg="#0c0c1e")
+        time_frame = tk.Frame(progress_frame, bg=WINDOW_BG)
         time_frame.pack(fill=tk.X)
 
         self.current_time_label = tk.Label(
             time_frame,
             text="0:00",
             font=self.small_font,
-            bg="#0c0c1e",
+            bg=WINDOW_BG,
             fg="#888888",
         )
         self.current_time_label.pack(side=tk.LEFT)
@@ -195,7 +205,7 @@ class KaraokeGUI:
             time_frame,
             text="0:00",
             font=self.small_font,
-            bg="#0c0c1e",
+            bg=WINDOW_BG,
             fg="#888888",
         )
         self.total_time_label.pack(side=tk.RIGHT)
@@ -214,7 +224,7 @@ class KaraokeGUI:
         )
         self.progress_canvas.bind("<Button-1>", self._on_progress_click)
 
-        controls_frame = tk.Frame(main_frame, bg="#0c0c1e")
+        controls_frame = tk.Frame(main_frame, bg=WINDOW_BG)
         controls_frame.pack(pady=8)
 
         self.play_btn = tk.Button(
@@ -282,7 +292,7 @@ class KaraokeGUI:
             main_frame,
             text="Scroll lyrics with the mouse wheel · Space = play/pause",
             font=self.small_font,
-            bg="#0c0c1e",
+            bg=WINDOW_BG,
             fg="#888888",
         )
         self.status_label.pack(pady=6)
@@ -309,8 +319,8 @@ class KaraokeGUI:
                 self.lyrics_inner,
                 text=text,
                 font=self.lyrics_line_font,
-                bg="#12122a",
-                fg="#5a5a72",
+                bg=LYRICS_BG,
+                fg=FUTURE_COLOR,
                 wraplength=wrap,
                 justify=tk.CENTER,
                 anchor="center",
@@ -348,22 +358,17 @@ class KaraokeGUI:
             self.lyrics_canvas.yview_scroll(int(-event.delta / 120), "units")
 
     def _line_index_at_time(self, t: float) -> int:
-        if not self.segments:
-            return -1
-        idx = 0
-        for i, seg in enumerate(self.segments):
-            if seg.start <= t:
-                idx = i
-        return idx
+        return line_index_at_time(self.segments, t)
 
     def _set_line_styles(self, active_idx: int) -> None:
         for i, lbl in enumerate(self.line_labels):
             if i == active_idx:
-                lbl.configure(fg="#00ffff", font=self.active_line_font)
-            elif active_idx >= 0 and i < active_idx:
-                lbl.configure(fg="#7a7a8e", font=self.lyrics_line_font)
+                lbl.configure(fg=ACTIVE_COLOR, font=self.active_line_font)
             else:
-                lbl.configure(fg="#5a5a72", font=self.lyrics_line_font)
+                lbl.configure(
+                    fg=line_color(i, active_idx),
+                    font=self.lyrics_line_font,
+                )
 
     def _scroll_active_line_to_center(self, index: int) -> None:
         if index < 0 or index >= len(self.line_labels):
