@@ -1,6 +1,11 @@
 """Tests for YouTube title → LRCLib metadata heuristics."""
 
-from bhajan.stages.lyrics_fetch import _short_track_aliases
+from __future__ import annotations
+
+import pytest
+
+from bhajan.stages import lyrics_fetch
+from bhajan.stages.lyrics_fetch import _search_ranked, _short_track_aliases
 from bhajan.utils import metadata_for_lrclib
 
 
@@ -29,3 +34,54 @@ def test_noisy_quoted_bollywood_title_gets_short_search_aliases() -> None:
         "Senorita Zindagi",
         "Senorita",
     ]
+
+
+def test_movie_song_feat_cast_title() -> None:
+    title = (
+        "Bang Bang - Tu Meri feat Hrithik Roshan & Katrina Kaif | "
+        "Vishal Shekhar | HD"
+    )
+
+    track, artist, album = metadata_for_lrclib(title, None)
+
+    assert track == "Tu Meri"
+    assert artist == "Vishal Shekhar"
+    assert album == "Bang Bang"
+
+
+def test_broad_alias_cannot_accept_unrelated_exact_title(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wrong_record = {
+        "id": 1,
+        "trackName": "Bang Bang",
+        "artistName": "Wrong Artist",
+        "albumName": "Unrelated Album",
+        "duration": 114.0,
+        "syncedLyrics": "[00:01.00]No one gets in my way",
+    }
+
+    class Response:
+        status_code = 200
+
+        def __init__(self, payload: list[dict]) -> None:
+            self._payload = payload
+
+        def json(self) -> list[dict]:
+            return self._payload
+
+    def fake_get(_url: str, *, params: dict, timeout: int) -> Response:
+        del timeout
+        query = str(params.get("q", ""))
+        return Response([wrong_record] if query in {"Bang Bang", "Bang"} else [])
+
+    monkeypatch.setattr(lyrics_fetch._SESSION, "get", fake_get)
+
+    match = _search_ranked(
+        "Bang Bang - Tu Meri feat Hrithik Roshan Katrina Kaif",
+        "",
+        "Vishal Shekhar",
+        114.0,
+    )
+
+    assert match is None

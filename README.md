@@ -133,6 +133,7 @@ bhajan "https://www.youtube.com/watch?v=VIDEO_ID"
 | `--language CODE` | Force one transcription language; auto-detect when omitted |
 | `--romanize` / `--no-romanize` | Use casual Latin lyrics or preserve native script |
 | `--no-fetch-lyrics` | Skip LRCLib and always use Whisper |
+| `--confirm-lyrics` / `--no-confirm-lyrics` | Review online lyrics before use (default: confirm interactively) |
 | `--transcription-backend NAME` | `whisper` (default) or `parakeet` (NVIDIA GPU only) |
 | `--separation-backend NAME` | `demucs` (default) or `audio-separator` |
 | `--separator-model MODEL` | Model for audio-separator (default: `UVR-MDX-NET_Voc_FT.onnx`) |
@@ -172,6 +173,12 @@ bhajan "https://www.youtube.com/watch?v=VIDEO_ID" --skip-download --skip-normali
 # Custom output directory with intermediate files kept
 bhajan "https://www.youtube.com/watch?v=VIDEO_ID" -o ~/Karaoke --keep-intermediate
 ```
+
+When synchronized lyrics are found online, bhajan shows the matched song and a
+three-line preview before using them. Press Enter to accept, or choose an option
+to list alternatives, search with a corrected title, paste a direct `.lrc` /
+`.txt` or LRCLib API URL, or fall back to Whisper transcription. Use
+`--no-confirm-lyrics` only for unattended runs.
 
 ---
 
